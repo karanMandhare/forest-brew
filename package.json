@@ -1,0 +1,20 @@
+{
+  "name": "forest-brew",
+  "version": "1.0.0",
+  "description": "Forest Brew Coffee Shop",
+  "main": "server.js",
+  "scripts": {
+    "start": "npm --prefix forest-brew run start",
+    "dev": "npm --prefix forest-brew run dev",
+    "build": "npm --prefix forest-brew run build",
+    "db:push": "npm --prefix forest-brew run db:push",
+    "db:seed": "npm --prefix forest-brew run db:seed",
+    "db:studio": "npm --prefix forest-brew run db:studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.8.0",
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2",
+    "nodemailer": "^8.0.7"
+  }
+}

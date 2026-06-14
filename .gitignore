@@ -1,0 +1,21 @@
+# dependencies
+/node_modules
+/git-portable
+
+# subproject dependencies & builds
+/forest-brew/node_modules
+/forest-brew/.next
+/forest-brew/out
+/forest-brew/build
+
+# typescript
+/forest-brew/*.tsbuildinfo
+/forest-brew/next-env.d.ts
+
+# debug logs
+*debug.log*
+*error.log*
+
+# databases
+/forest-brew/*.db
+/forest-brew/*.sqlite

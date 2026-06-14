@@ -1,0 +1,500 @@
+// ============================================================
+//  Forest Brew — Prisma Schema
+//  PostgreSQL | Prisma ORM
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums ────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  ADMIN
+  DELIVERY
+}
+
+enum OrderStatus {
+  PENDING
+  RECEIVED
+  ASSIGNED
+  BREWING
+  READY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum OrderType {
+  DINE_IN
+  DELIVERY
+}
+
+enum ModifierType {
+  MILK
+  SYRUP
+  TEMPERATURE
+  SIZE
+}
+
+enum ProductCategory {
+  HOT
+  COLD
+  FOOD
+  RESERVE
+  SEASONAL
+}
+
+enum LoyaltyTransactionType {
+  EARN
+  REDEEM
+  BONUS
+}
+
+enum WalletTransactionType {
+  TOP_UP
+  SPENT
+  REFUND
+}
+
+// ── Models ───────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String?
+  name          String?
+  phone         String?
+  image         String?
+  emailVerified DateTime?
+  role          Role     @default(USER)
+  loyaltyPoints Int      @default(0)
+  walletBalance Int      @default(0) // Wallet balance in paise (INR) - e.g. 50000 = ₹500
+  salary        Int      @default(0) // Monthly salary in paise (INR) for staff/workers
+  isAvailable         Boolean  @default(true) // availability status for staff shifts
+  subscriptionTier    String?
+  subscriptionExpires DateTime?
+  subscriptionStatus  String?
+  unlockedBadges      String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  orders              Order[]
+  deliveries          Order[]  @relation("DeliveryAgent")
+  preparedOrders      Order[]  @relation("PreparingWorker")
+  chatMessages        ChatMessage[]
+  loyaltyTransactions LoyaltyTransaction[]
+  walletTransactions  WalletTransaction[]
+  accounts            Account[]
+  sessions            Session[]
+  reservations        Reservation[]
+  workerAttendances   WorkerAttendance[]
+  workerPayments      WorkerPayment[]
+  notifications       Notification[]
+  feedbacks           Feedback[]
+  wishlist            WishlistItem[]
+  reviews             Review[]
+
+  @@index([email])
+}
+
+// NextAuth required models
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ── Product & Modifiers ──────────────────────────────────────
+
+model Product {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String          @unique
+  description String
+  notes       String          // Tasting notes (e.g., "Dark cacao · Wild honey")
+  basePrice   Int             // In paise (INR) — e.g., 32000 = ₹320
+  imageUrl    String
+  badge       String?         // e.g., "🌿 Signature"
+  origin      String?         // e.g., "Ethiopia Yirgacheffe"
+  category    ProductCategory @default(HOT)
+  isAvailable Boolean         @default(true)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  // Relations
+  orderItems  OrderItem[]
+  modifiers   ProductModifier[]
+  wishlistItems WishlistItem[]
+  reviews       Review[]
+
+  @@index([category])
+  @@index([isAvailable])
+}
+
+model Modifier {
+  id              String       @id @default(cuid())
+  name            String       // e.g., "Oat Milk", "Vanilla Syrup"
+  type            ModifierType
+  priceAdjustment Int          @default(0) // In paise — can be negative
+  isAvailable     Boolean      @default(true)
+  sortOrder       Int          @default(0)
+
+  // Relations
+  products        ProductModifier[]
+
+  @@index([type])
+}
+
+// Join table: which modifiers are available for which products
+model ProductModifier {
+  productId  String
+  modifierId String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  modifier   Modifier @relation(fields: [modifierId], references: [id], onDelete: Cascade)
+
+  @@id([productId, modifierId])
+}
+
+// ── Orders ───────────────────────────────────────────────────
+
+model Order {
+  id              String      @id @default(cuid())
+  userId          String?     // Nullable for guest orders
+  status          OrderStatus @default(PENDING)
+  orderType       OrderType   @default(DINE_IN)
+  totalAmount     Int         // Server-calculated total in paise
+  starsRedeemed   Int         @default(0)  // Stars redeemed for this order
+  paymentMethod   String      @default("RAZORPAY") // WALLET or RAZORPAY
+  customerName    String?
+  customerEmail   String?
+  customerPhone   String?
+  deliveryAddress String?
+  latitude        Float?
+  longitude       Float?
+  paymentId       String?     // Razorpay payment ID or Wallet transaction ID
+  razorpayOrderId String?
+  notes           String?
+  tableNumber     String?
+  deliveryUserId  String?
+  deliveryOtp     String?
+  deliveryNotes   String?
+  workerId        String?
+  estimatedTime   Int?        // estimated wait/brew/delivery time in minutes
+  paymentStatus   String      @default("PENDING") // PENDING, PAID, REFUNDED
+  acceptedAt      DateTime?
+  assignedAt      DateTime?
+  preparingAt     DateTime?
+  readyAt         DateTime?
+  deliveredAt     DateTime?
+  cancelledAt     DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  // Relations
+  user                User?               @relation(fields: [userId], references: [id])
+  deliveryUser        User?               @relation("DeliveryAgent", fields: [deliveryUserId], references: [id])
+  worker              User?               @relation("PreparingWorker", fields: [workerId], references: [id])
+  items               OrderItem[]
+  loyaltyTransaction  LoyaltyTransaction?
+  feedbacks           Feedback[]
+
+  @@index([userId])
+  @@index([deliveryUserId])
+  @@index([workerId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id             String   @id @default(cuid())
+  orderId        String
+  productId      String
+  quantity       Int      @default(1)
+  unitPrice      Int      // Server-verified price at time of order (in paise)
+  customizations Json // { milk: "oat", syrups: ["vanilla"], temp: "iced", size: "grande" }
+  createdAt      DateTime @default(now())
+
+  // Relations
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+}
+
+// ── Loyalty System ───────────────────────────────────────────
+
+model LoyaltyTransaction {
+  id      String                 @id @default(cuid())
+  userId  String
+  points  Int                    // Positive = earned, Negative = redeemed
+  type    LoyaltyTransactionType
+  orderId String?                @unique
+  note    String?
+  createdAt DateTime             @default(now())
+
+  // Relations
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  order Order? @relation(fields: [orderId], references: [id])
+
+  @@index([userId])
+}
+
+// ── Table Reservations ───────────────────────────────────────
+
+model Reservation {
+  id                 String   @id @default(cuid())
+  userId             String?
+  customerName       String
+  email              String
+  phone              String?
+  date               DateTime
+  guestCount         Int
+  specialNotes       String?
+  confirmed          Boolean  @default(false)
+  status             String   @default("PENDING") // PENDING, CONFIRMED, COMPLETED, CANCELLED
+  advancePaid        Int      @default(0)         // in paise (INR) - e.g. 30000 = ₹300
+  remainingPaid      Int      @default(0)         // in paise (INR) - e.g. 45000 = ₹450
+  totalAmount        Int      @default(75000)     // in paise (INR) - e.g. 75000 = ₹750
+  visited            Boolean  @default(false)
+  feedbackSent       Boolean  @default(false)
+  cancellationReason String?
+  tableNumber        String?
+  createdAt          DateTime @default(now())
+
+  // Relations
+  user               User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  feedbacks          Feedback[]
+
+  @@index([date])
+  @@index([userId])
+}
+
+// ── Wallet Transactions ──────────────────────────────────────
+
+model WalletTransaction {
+  id        String                @id @default(cuid())
+  userId    String
+  amount    Int                   // positive for load/refund, negative for spent (in paise)
+  type      WalletTransactionType
+  orderId   String?
+  note      String?
+  createdAt DateTime              @default(now())
+
+  user      User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ── OTP Tokens (for password reset) ─────────────────────────
+
+model OTPToken {
+  id        String   @id @default(cuid())
+  email     String
+  code      String   // 6-digit OTP code (hashed)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+// ── Worker HR & Performance Records ──────────────────────────
+
+model WorkerAttendance {
+  id        String   @id @default(cuid())
+  workerId  String
+  date      DateTime // normalized to midnight UTC
+  status    String   // "PRESENT", "HALF_DAY", "SICK_LEAVE", "ABSENT"
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  worker    User     @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, date])
+  @@index([workerId])
+  @@index([date])
+}
+
+model WorkerPayment {
+  id          String    @id @default(cuid())
+  workerId    String
+  amount      Int       // basic amount paid (in paise)
+  bonus       Int       @default(0) // bonus amount paid (in paise)
+  month       String    // format "YYYY-MM" or "Month YYYY"
+  status      String    // "PAID", "PENDING"
+  paymentDate DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  worker      User      @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, month])
+  @@index([workerId])
+}
+
+// ── Notification System ────────────────────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String   // "ORDER_STATUS", "INVENTORY_ALERT", "SYSTEM"
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ── Feedback & Rating System ───────────────────────────────────
+
+model Feedback {
+  id            String       @id @default(cuid())
+  userId        String?
+  orderId       String?
+  reservationId String?      @unique
+  rating        Int          // 1 to 5 stars
+  comments      String?
+  type          String       @default("ORDER") // "ORDER", "COMPLAINT", "RESERVATION", "GENERAL"
+  status        String       @default("PENDING") // "PENDING", "RESOLVED", "REFUNDED"
+  resolvedAt    DateTime?
+  refundAmount  Int?         // in paise (INR)
+  createdAt     DateTime     @default(now())
+
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  order       Order?       @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  reservation Reservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([orderId])
+  @@index([reservationId])
+}
+
+model ChatMessage {
+  id         String   @id @default(cuid())
+  userId     String
+  senderId   String
+  senderRole String   // "USER" or "ADMIN" or "DELIVERY"
+  message    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ── Inventory Tracking ─────────────────────────────────────────
+
+model Inventory {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  quantity  Int
+  unit      String   // e.g., "units", "kg", "liters"
+  threshold Int      // low stock alert trigger point
+  category  String?  // e.g., "Coffee Beans", "Dairy", "Cups"
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// ── Contact Us Messages ────────────────────────────────────────
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  name      String
+  email     String
+  subject   String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+// ── User Wishlist ─────────────────────────────────────────────
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+}
+
+// ── Newsletter Subscribers ────────────────────────────────────
+
+model NewsletterSubscriber {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}
+
+// ── Product Reviews & Ratings ─────────────────────────────────
+
+model Review {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  rating    Int      // 1 to 5 stars
+  comment   String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
+}
